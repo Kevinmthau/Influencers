@@ -30,13 +30,19 @@ npm run discover
 ```
 Searches YouTube for channels in each category, filters to 10k+ subscribers, and saves to `output/channels.json`. Also extracts any email addresses found in channel descriptions.
 
-**Step 2 — Collect emails via browser:**
+**Step 2 — Scrape emails from public sites:**
+```
+npm run scrape-public
+```
+Before resorting to CAPTCHAs, this step checks each channel's linked websites and social profiles for publicly available email addresses. It scrapes personal websites (including `/contact`, `/about`, `/contact-us` pages), Linktree pages, and social media bios. Progress is saved every 10 channels.
+
+**Step 3 — Collect remaining emails via browser:**
 ```
 npm run collect-emails
 ```
-Opens a browser window and navigates to each channel's About page. For channels with a "View email address" button, it clicks the button and waits for you to complete the CAPTCHA. After you solve it, the script captures the revealed email. Progress is saved after each channel.
+For channels that still need emails after steps 1 and 2, this opens a browser window and navigates to each channel's About page. It clicks the "View email address" button and waits for you to complete the CAPTCHA. After you solve it, the script captures the revealed email. Progress is saved after each channel.
 
-**Step 3 — Export to CSV:**
+**Step 4 — Export to CSV:**
 ```
 npm run export-csv
 ```
@@ -51,7 +57,7 @@ Exports all collected data to `output/influencers.csv`.
   - Subscribers
   - Channel URL
   - Email
-  - Email Source (description or about_page)
+  - Email Source (description, public_site, or about_page)
   - Description
 
 ## Categories
