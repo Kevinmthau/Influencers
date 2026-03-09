@@ -1,0 +1,17 @@
+{
+  "name": "youtube-influencer-scraper",
+  "version": "1.0.0",
+  "description": "Find YouTube influencers by category and collect their contact info",
+  "type": "module",
+  "scripts": {
+    "discover": "node src/discover-channels.js",
+    "collect-emails": "node src/collect-emails.js",
+    "export-csv": "node src/export-csv.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "csv-writer": "^1.6.0",
+    "dotenv": "^16.6.1",
+    "playwright": "^1.58.2"
+  }
+}
