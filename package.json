@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "discover": "node src/discover-channels.js",
+    "scrape-public": "node src/scrape-public-emails.js",
     "collect-emails": "node src/collect-emails.js",
     "export-csv": "node src/export-csv.js",
     "start": "node src/index.js"

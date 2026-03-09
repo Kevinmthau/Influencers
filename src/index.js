@@ -2,7 +2,8 @@ import { execSync } from "child_process";
 
 const steps = [
   { script: "src/discover-channels.js", label: "Discovering channels via YouTube API" },
-  { script: "src/collect-emails.js", label: "Collecting emails (browser - requires interaction)" },
+  { script: "src/scrape-public-emails.js", label: "Scraping emails from public websites and social links" },
+  { script: "src/collect-emails.js", label: "Collecting remaining emails (browser - requires interaction)" },
   { script: "src/export-csv.js", label: "Exporting to CSV" },
 ];
 

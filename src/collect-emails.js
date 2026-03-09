@@ -16,7 +16,7 @@ async function collectEmails() {
 
   // Filter to channels that still need email collection
   const needEmail = channels.filter(
-    (ch) => !ch.emailFromAboutPage && !ch.emailFromDescription
+    (ch) => !ch.emailFromAboutPage && !ch.emailFromPublicSites && !ch.emailFromDescription
   );
   console.log(
     `${needEmail.length} channels need email collection (${channels.length} total)`

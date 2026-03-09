@@ -28,9 +28,10 @@ async function exportCsv() {
   });
 
   const records = channels.map((ch) => {
-    const email = ch.emailFromAboutPage || ch.emailFromDescription || "";
+    const email = ch.emailFromAboutPage || ch.emailFromPublicSites || ch.emailFromDescription || "";
     let emailSource = "";
     if (ch.emailFromAboutPage) emailSource = "about_page";
+    else if (ch.emailFromPublicSites) emailSource = "public_site";
     else if (ch.emailFromDescription) emailSource = "description";
 
     return {
