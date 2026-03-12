@@ -1,16 +1,18 @@
 import dotenv from "dotenv";
 import { writeFileSync, existsSync, readFileSync } from "fs";
+import { ensureParentDir } from "./file-utils.js";
 
 dotenv.config();
 
-const API_KEY = process.env.YOUTUBE_API_KEY;
-if (!API_KEY) {
+const API_KEY = process.env.YOUTUBE_API_KEY?.trim();
+if (!API_KEY || API_KEY === "your_api_key_here") {
   console.error("Missing YOUTUBE_API_KEY in .env file. See .env.example");
   process.exit(1);
 }
 
 const BASE_URL = "https://www.googleapis.com/youtube/v3";
 const MIN_SUBSCRIBERS = 10_000;
+const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
 
 // Search queries for each category
 const CATEGORIES = {
@@ -106,7 +108,7 @@ async function getChannelDetails(channelIds) {
   for (let i = 0; i < channelIds.length; i += 50) {
     const batch = channelIds.slice(i, i + 50);
     const data = await apiGet("channels", {
-      part: "snippet,statistics,brandingSettings",
+      part: "snippet,statistics,contentDetails",
       id: batch.join(","),
     });
 
@@ -115,18 +117,19 @@ async function getChannelDetails(channelIds) {
       if (subs >= MIN_SUBSCRIBERS) {
         // Try to extract email from description
         const desc = ch.snippet?.description || "";
-        const emailMatch = desc.match(
-          /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/
-        );
+        const emailMatch = desc.match(EMAIL_REGEX);
 
         channels.push({
           channelId: ch.id,
           name: ch.snippet?.title || "",
           url: `https://www.youtube.com/channel/${ch.id}`,
           subscribers: subs,
-          description: desc.substring(0, 500),
+          description: desc,
           emailFromDescription: emailMatch ? emailMatch[0] : "",
+          emailFromPublicSites: "",
+          publicEmailSourceUrl: "",
           emailFromAboutPage: "", // Will be filled by collect-emails.js
+          uploadsPlaylistId: ch.contentDetails?.relatedPlaylists?.uploads || "",
         });
       }
     }
@@ -165,10 +168,18 @@ async function main() {
         );
 
         for (const ch of channels) {
-          if (!existing[ch.channelId]) {
-            ch.category = category;
-            existing[ch.channelId] = ch;
-          }
+          const prior = existing[ch.channelId] || {};
+          existing[ch.channelId] = {
+            ...prior,
+            ...ch,
+            category: prior.category || category,
+            emailFromDescription:
+              prior.emailFromDescription || ch.emailFromDescription,
+            emailFromPublicSites: prior.emailFromPublicSites || "",
+            publicEmailSourceUrl: prior.publicEmailSourceUrl || "",
+            emailFromAboutPage: prior.emailFromAboutPage || "",
+            uploadsPlaylistId: ch.uploadsPlaylistId || prior.uploadsPlaylistId || "",
+          };
         }
       } catch (err) {
         console.error(`    Error: ${err.message}`);
@@ -177,6 +188,7 @@ async function main() {
   }
 
   const allChannels = Object.values(existing);
+  ensureParentDir(outputPath);
   writeFileSync(outputPath, JSON.stringify(allChannels, null, 2));
   console.log(`\nSaved ${allChannels.length} channels to ${outputPath}`);
 

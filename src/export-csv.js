@@ -1,5 +1,6 @@
 import { createObjectCsvWriter } from "csv-writer";
 import { readFileSync, existsSync } from "fs";
+import { ensureParentDir } from "./file-utils.js";
 
 const CHANNELS_FILE = "output/channels.json";
 const CSV_FILE = "output/influencers.csv";
@@ -51,6 +52,7 @@ async function exportCsv() {
     return b.subscribers - a.subscribers;
   });
 
+  ensureParentDir(CSV_FILE);
   await csvWriter.writeRecords(records);
 
   // Print summary

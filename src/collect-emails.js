@@ -1,8 +1,14 @@
 import { chromium } from "playwright";
 import { readFileSync, writeFileSync, existsSync } from "fs";
+import { createInterface } from "readline/promises";
+import { stdin as input, stdout as output } from "process";
+import { ensureParentDir } from "./file-utils.js";
 
 const CHANNELS_FILE = "output/channels.json";
-const TIMEOUT_FOR_CAPTCHA = 120_000; // 2 minutes for user to solve CAPTCHA
+const EMAIL_CAPTURE_TIMEOUT = 10_000;
+const PAGE_RENDER_TIMEOUT = 10_000;
+const EMAIL_TEXT_REGEX =
+  /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
 
 async function collectEmails() {
   if (!existsSync(CHANNELS_FILE)) {
@@ -40,9 +46,11 @@ async function collectEmails() {
   });
 
   const page = await context.newPage();
+  const readline = createInterface({ input, output });
 
   let collected = 0;
   let skipped = 0;
+  let aborted = false;
 
   for (let i = 0; i < needEmail.length; i++) {
     const ch = needEmail[i];
@@ -59,50 +67,26 @@ async function collectEmails() {
         timeout: 30_000,
       });
 
-      // Wait for page to settle
-      await page.waitForTimeout(2000);
+      // Give YouTube's About page time to render the business inquiry section.
+      await page.waitForLoadState("networkidle", { timeout: PAGE_RENDER_TIMEOUT }).catch(() => {});
+      await page.waitForTimeout(2_000);
 
-      // Look for the "View email address" button
-      // YouTube uses different selectors depending on the layout
-      const emailButton = await page.$(
-        [
-          // Modern YouTube layout selectors
-          'button:has-text("View email address")',
-          'a:has-text("View email address")',
-          "#view-email-button",
-          'yt-button-renderer:has-text("View email")',
-          'button:has-text("view email")',
-          // Channel page "Details" section
-          'tp-yt-paper-button:has-text("View email address")',
-        ].join(", ")
-      );
+      const result = await handleCurrentPage(readline, page);
 
-      if (!emailButton) {
-        console.log("  No 'View email address' button found. Skipping.");
+      if (result.action === "quit") {
+        console.log("  Stopping at your request.");
+        aborted = true;
+        break;
+      }
+
+      if (result.action === "skip") {
+        console.log("  Skipped.");
         skipped++;
         continue;
       }
 
-      // Click the button
-      console.log("  Clicking 'View email address' button...");
-      await emailButton.click();
-
-      // Wait for the CAPTCHA / verification to appear
-      await page.waitForTimeout(1500);
-
-      // Alert the user
-      console.log(
-        "  >>> COMPLETE THE CAPTCHA IN THE BROWSER WINDOW <<<"
-      );
-      console.log(
-        `  Waiting up to ${TIMEOUT_FOR_CAPTCHA / 1000}s for you to complete it...`
-      );
-
-      // Wait for the email to appear on the page after CAPTCHA completion
-      // The email typically appears in a specific element after verification
-      const email = await waitForEmail(page, TIMEOUT_FOR_CAPTCHA);
-
-      if (email) {
+      if (result.email) {
+        const email = result.email;
         console.log(`  Email found: ${email}`);
         // Update the channel record
         const idx = channels.findIndex((c) => c.channelId === ch.channelId);
@@ -112,6 +96,7 @@ async function collectEmails() {
         collected++;
 
         // Save progress after each successful collection
+        ensureParentDir(CHANNELS_FILE);
         writeFileSync(CHANNELS_FILE, JSON.stringify(channels, null, 2));
       } else {
         console.log("  Could not extract email. Skipping.");
@@ -126,70 +111,141 @@ async function collectEmails() {
     await page.waitForTimeout(1000);
   }
 
+  readline.close();
   await browser.close();
 
   console.log(`\nDone! Collected: ${collected}, Skipped: ${skipped}`);
+  if (aborted) {
+    console.log("Run `npm run collect-emails` again to continue where you left off.");
+  }
   console.log(`Results saved to ${CHANNELS_FILE}`);
+}
+
+async function findEmailButton(page, timeout) {
+  const deadline = Date.now() + timeout;
+
+  while (Date.now() < deadline) {
+  const candidates = [
+    page.getByRole("button", { name: /view email/i }).first(),
+    page.getByRole("link", { name: /view email/i }).first(),
+    page.getByText(/view email address/i).first(),
+    page.getByText(/view email/i).first(),
+    page.locator("#view-email-button").first(),
+    page.locator("yt-button-view-model").filter({ hasText: /view email/i }).first(),
+    page.locator("button-view-model").filter({ hasText: /view email/i }).first(),
+    page.locator("tp-yt-paper-button").filter({ hasText: /view email/i }).first(),
+    page.locator("yt-button-renderer").filter({ hasText: /view email/i }).first(),
+  ];
+
+    for (const locator of candidates) {
+      try {
+        if (await locator.isVisible({ timeout: 1_000 })) {
+          return locator;
+        }
+      } catch {
+        // Try the next candidate.
+      }
+    }
+
+    await page.waitForTimeout(1_000);
+  }
+
+  return null;
+}
+
+async function handleCurrentPage(readline, page) {
+  while (true) {
+    console.log("  >>> Use the browser window now. This page will stay open until you choose what to do. <<<");
+    const answer = await readline.question(
+      "  Press Enter after the email is visible. Type 'auto' for me to click 'View email', paste the email directly, 'skip' for next channel, or 'quit' to stop: "
+    );
+    const trimmed = answer.trim();
+    const lower = trimmed.toLowerCase();
+
+    if (lower === "skip") {
+      return { action: "skip", email: null };
+    }
+
+    if (lower === "quit") {
+      return { action: "quit", email: null };
+    }
+
+    const manualEmailMatch = trimmed.match(EMAIL_TEXT_REGEX);
+    if (manualEmailMatch) {
+      return { action: "captured", email: manualEmailMatch[0] };
+    }
+
+    if (lower === "auto") {
+      const emailButton = await findEmailButton(page, PAGE_RENDER_TIMEOUT);
+      if (!emailButton) {
+        console.log(
+          "  I couldn't find a 'View email' button automatically. You can keep working manually on this page."
+        );
+        continue;
+      }
+
+      console.log("  Clicking 'View email address' button...");
+      await emailButton.click({ timeout: 5_000 });
+      await page.waitForTimeout(1500);
+      console.log("  Solve the CAPTCHA in the browser, then press Enter here once the email is visible.");
+      continue;
+    }
+
+    const email = await waitForEmail(page, EMAIL_CAPTURE_TIMEOUT);
+    if (email) {
+      return { action: "captured", email };
+    }
+
+    console.log(
+      "  Email still isn't visible to the script. Keep working in the browser, type 'auto' for a click attempt, paste the email directly, or 'skip'."
+    );
+  }
 }
 
 async function waitForEmail(page, timeout) {
   const startTime = Date.now();
 
   while (Date.now() - startTime < timeout) {
-    // Try multiple selectors where YouTube displays the email after CAPTCHA
-    const selectors = [
-      // The email link that appears after verification
-      'a[href^="mailto:"]',
-      // Text content that looks like an email
-      "#email",
-      ".email-text",
-      // Generic approach: look for email pattern in visible text
-    ];
-
-    for (const sel of selectors) {
-      try {
-        const el = await page.$(sel);
-        if (el) {
-          const text = await el.textContent();
-          const emailMatch = text?.match(
-            /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/
-          );
-          if (emailMatch) return emailMatch[0];
-
-          // For mailto links
-          const href = await el.getAttribute("href");
-          if (href?.startsWith("mailto:")) {
-            return href.replace("mailto:", "").split("?")[0];
-          }
-        }
-      } catch {
-        // Selector not found, continue
+    for (const frame of page.frames()) {
+      const email = await extractEmailFromFrame(frame);
+      if (email) {
+        return email;
       }
     }
 
-    // Fallback: scan visible page text for email patterns
-    try {
-      const bodyText = await page.evaluate(() => document.body.innerText);
-      // Look for email that appeared after clicking the button
-      // Filter out common false positives
-      const emails = bodyText.match(
-        /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
+    await page.waitForTimeout(1_000);
+  }
+
+  return null;
+}
+
+async function extractEmailFromFrame(frame) {
+  try {
+    const mailto = frame.locator('a[href^="mailto:"]').first();
+    const href = await mailto.getAttribute("href", { timeout: 1_000 });
+    if (href?.startsWith("mailto:")) {
+      return href.replace("mailto:", "").split("?")[0];
+    }
+  } catch {
+    // Ignore missing mailto links.
+  }
+
+  try {
+    const bodyText = await frame.evaluate(() => document.body?.innerText || "");
+    const emails = bodyText.match(
+      /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
+    );
+
+    if (emails) {
+      return emails.find(
+        (email) =>
+          !email.includes("@youtube.com") &&
+          !email.includes("@google.com") &&
+          !email.includes("example.com")
       );
-      if (emails) {
-        // Return the first email that isn't a YouTube/Google system email
-        const validEmail = emails.find(
-          (e) =>
-            !e.includes("@youtube.com") &&
-            !e.includes("@google.com") &&
-            !e.includes("example.com")
-        );
-        if (validEmail) return validEmail;
-      }
-    } catch {
-      // Page might be navigating
     }
-
-    await page.waitForTimeout(2000);
+  } catch {
+    // The frame might still be loading.
   }
 
   return null;

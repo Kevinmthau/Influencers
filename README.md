@@ -34,13 +34,13 @@ Searches YouTube for channels in each category, filters to 10k+ subscribers, and
 ```
 npm run scrape-public
 ```
-Before resorting to CAPTCHAs, this step checks each channel's linked websites and social profiles for publicly available email addresses. It scrapes personal websites (including `/contact`, `/about`, `/contact-us` pages), Linktree pages, and social media bios. Progress is saved every 10 channels.
+Before resorting to CAPTCHAs, this step refreshes the full channel description, checks recent upload descriptions for repeated direct contact emails, and crawls publicly linked creator sites. It also decodes common public email obfuscation patterns, inspects same-origin sitemap/contact pages, and rejects obvious platform, legal-page, shortener, and support-email noise before saving a public email.
 
 **Step 3 — Collect remaining emails via browser:**
 ```
 npm run collect-emails
 ```
-For channels that still need emails after steps 1 and 2, this opens a browser window and navigates to each channel's About page. It clicks the "View email address" button and waits for you to complete the CAPTCHA. After you solve it, the script captures the revealed email. Progress is saved after each channel.
+For channels that still need emails after steps 1 and 2, this opens a browser window and navigates to each channel's About page. It keeps each page open until you choose to skip, quit, or press Enter after revealing the email yourself. You can also ask it to try clicking the "View email address" button for you or paste the email directly into the terminal. Progress is saved after each channel.
 
 **Step 4 — Export to CSV:**
 ```
