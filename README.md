@@ -14,6 +14,10 @@ Find YouTube influencers (video game reviewers, board game reviewers, tech revie
    npm install
    npx playwright install chromium
    ```
+4. Run the unit tests:
+   ```
+   npm test
+   ```
 
 ## Usage
 

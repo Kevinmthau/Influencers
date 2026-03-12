@@ -1,15 +1,16 @@
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import dotenv from "dotenv";
-import { ensureParentDir } from "./file-utils.js";
+import { ensureParentDir, isMainModule } from "./file-utils.js";
 
 dotenv.config();
 
-const API_KEY = process.env.YOUTUBE_API_KEY?.trim();
 const BASE_URL = "https://www.googleapis.com/youtube/v3";
 const CHANNELS_FILE = "output/channels.json";
+const MISSING_API_KEY_MESSAGE =
+  "Missing YOUTUBE_API_KEY in .env file. See .env.example";
 const EMAIL_REGEX = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
 const DIRECT_URL_REGEX = /https?:\/\/[^\s<>"')\]]+/g;
-const ESCAPED_URL_REGEX = /https?:\\u002F\\u002F[^"'\\\s<>)\]]+/g;
+const ESCAPED_URL_REGEX = /https?:\\u002F\\u002F[^"'\s<>)\]]+/g;
 const HREF_REGEX = /href=["']([^"'#]+)["']/gi;
 const YOUTUBE_REDIRECT_REGEX = /(?:https:\/\/www\.youtube\.com)?\/redirect\?[^"'\\\s<>)\]]+/gi;
 const GENERIC_TOKENS = new Set([
@@ -346,18 +347,22 @@ const NON_CONTACT_EMAIL_HINTS = [
 
 const sitemapCache = new Map();
 
-if (!API_KEY || API_KEY === "your_api_key_here") {
-  console.error("Missing YOUTUBE_API_KEY in .env file. See .env.example");
-  process.exit(1);
-}
-
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function getApiKey() {
+  const apiKey = process.env.YOUTUBE_API_KEY?.trim();
+  if (!apiKey || apiKey === "your_api_key_here") {
+    throw new Error(MISSING_API_KEY_MESSAGE);
+  }
+
+  return apiKey;
+}
+
 async function apiGet(endpoint, params) {
   const url = new URL(`${BASE_URL}/${endpoint}`);
-  url.searchParams.set("key", API_KEY);
+  url.searchParams.set("key", getApiKey());
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
@@ -1336,6 +1341,8 @@ async function processChannel(channel, context) {
 }
 
 async function main() {
+  getApiKey();
+
   if (!existsSync(CHANNELS_FILE)) {
     console.error(`No ${CHANNELS_FILE} found. Run "npm run discover" first.`);
     process.exit(1);
@@ -1417,7 +1424,24 @@ async function main() {
   );
 }
 
-main().catch((err) => {
-  console.error("Fatal error:", err);
-  process.exit(1);
-});
+export {
+  extractAboutPageEmails,
+  extractEmails,
+  extractUrls,
+  isEmailConsistentWithSource,
+  isValidEmail,
+  normalizeEmail,
+  prioritizeUrls,
+  selectRecentVideoEmailCandidate,
+};
+
+if (isMainModule(import.meta.url)) {
+  main().catch((err) => {
+    if (err?.message === MISSING_API_KEY_MESSAGE) {
+      console.error(MISSING_API_KEY_MESSAGE);
+    } else {
+      console.error("Fatal error:", err);
+    }
+    process.exit(1);
+  });
+}

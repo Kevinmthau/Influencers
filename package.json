@@ -8,6 +8,7 @@
     "scrape-public": "node src/scrape-public-emails.js",
     "collect-emails": "node src/collect-emails.js",
     "export-csv": "node src/export-csv.js",
+    "test": "node --test",
     "start": "node src/index.js"
   },
   "dependencies": {
